@@ -2,6 +2,8 @@
 
 A text redactor: swap real names and other details in text for placeholders like `[full name]` or for made-up stand-ins. It's a single HTML file: download [`ScrubbyWurd.html`](ScrubbyWurd.html), double-click it, and it opens in your browser. Nothing to install, it works offline, and nothing you paste in is sent anywhere.
 
+**Use it online:** https://fourier18.github.io/ScrubbyWurd/ — the page runs entirely in your browser there too; the text you paste never goes to a server.
+
 ## Using it
 
 1. **Build your list.** In the left panel, type what to find and what to replace it with, one pair per row. A new empty row appears as you fill the last one.
