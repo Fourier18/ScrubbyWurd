@@ -14,7 +14,7 @@ To get ScrubbyWurd in its own window, with its own icon, in the Start menu and p
 powershell -ExecutionPolicy Bypass -File tools\install-windows-app.ps1
 ```
 
-Nothing is installed as a program. It copies `ScrubbyWurd.html` and its icon to `%LOCALAPPDATA%\Programs\ScrubbyWurd` and adds **ScrubbyWurd** shortcuts to the Start menu and Desktop. To pin it, right-click the Start menu or Desktop shortcut and choose **Pin to taskbar** (pinning the open window instead gives you Chrome's icon). The shortcut opens the page in Google Chrome's app mode (no address bar or tabs), using a separate Chrome profile that isn't signed in to any account and has extensions and sync turned off, so no browser extension can see what you paste. It needs Chrome installed. (Microsoft Edge isn't used, because a new Edge profile signs itself in to your Windows Microsoft account.) Run the script again after updating to install the new version. To remove it, delete the two shortcuts and that folder.
+Nothing is installed as a program. It copies `ScrubbyWurd.html` and its icon to `%LOCALAPPDATA%\Programs\ScrubbyWurd` and adds **ScrubbyWurd** shortcuts to the Start menu and Desktop. To pin it, right-click the Start menu or Desktop shortcut and choose **Pin to taskbar** (pinning the open window instead gives you Chrome's icon). The shortcut opens the page in Google Chrome's app mode (no address bar or tabs), using a separate Chrome profile that isn't signed in to any account and has extensions and sync turned off, so no browser extension can see what you paste. It needs Chrome installed. (Microsoft Edge isn't used, because a new Edge profile signs itself in to your Windows Microsoft account.) Run the script again after updating to install the new version. It also adds **Erase ScrubbyWurd data** to the Start menu, which deletes everything the app has stored on the computer (see below). To remove the app, delete the shortcuts and that folder.
 
 ## Using it
 
@@ -57,6 +57,12 @@ To move a list to another computer or browser, or share it, use **Export** and *
 - **Spreadsheet (.csv)**: find in column A, replacement in column B. Opens in Excel or Google Sheets.
 
 The Import window shows a preview of the list before anything changes. An exported list contains the original names you're hiding, so keep the file private.
+
+## Deleting everything
+
+**Delete all** (next to Import and Export) deletes your list, the input, the result and everything the page has saved, in one step.
+
+Browsers can keep older copies of saved data in their storage files for a while after it's deleted, and a web page can't reach those files. If you installed the app, **Erase ScrubbyWurd data** in the Start menu deletes the app's whole storage folder, older copies included. If you use the HTML file in your normal browser instead, clear that browser's site data for the page.
 
 ## License
 

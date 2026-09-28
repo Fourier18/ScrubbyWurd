@@ -144,6 +144,16 @@ foreach ($dir in $places) {
     if ($appId) { [AppId]::SetOnShortcut($path, $appId) }
 }
 
+# "Erase ScrubbyWurd data": deletes the app's whole Chrome profile folder, including older
+# copies Chrome keeps in its storage files, which the page itself can't reach.
+Copy-Item (Join-Path $PSScriptRoot 'erase-app-data.ps1') -Destination $dest -Force
+$erase = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Erase ScrubbyWurd data.lnk'))
+$erase.TargetPath = (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
+$erase.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $dest 'erase-app-data.ps1')`""
+$erase.IconLocation = (Join-Path $dest 'ScrubbyWurd.ico')
+$erase.Description = 'Erase everything ScrubbyWurd has saved on this computer'
+$erase.Save()
+
 Write-Output "Installed to $dest"
 if ($appId) { Write-Output "Taskbar app ID: $appId" }
 else { Write-Output "Couldn't read the window's app ID, so a taskbar pin may show Chrome's icon. Run this script again to retry." }
