@@ -27,11 +27,13 @@ Longer items are always replaced first, so `John Smith` isn't split by a separat
 
 Each item is matched as you typed it, and also where the same text is written in other common ways:
 
-- with extra spaces, tabs or line breaks between words, or `\n`, `\t`, `%20`, `+` or `&nbsp;` in logs, JSON, URLs and web pages;
-- with invisible characters inside it (zero-width spaces, soft hyphens), which text copied from web pages often has;
-- with a curly apostrophe (`O’Brien` for `O'Brien`) or an escaped one (`&#39;`, `\u0027`);
-- with accented letters stored either way, or escaped as `\u00e9` or `&#233;`;
+- with extra spaces, tabs, `_`, or one line break between words, or with `\n`, `\t`, `%20`, `+` or `&nbsp;` written in their place in logs, JSON, URLs and web pages;
+- with invisible characters inside it (zero-width spaces, soft hyphens, direction marks), which text copied from web pages often has;
+- with a curly apostrophe (`O’Brien` for `O'Brien`) or an escaped one (`&#39;`, `\u0027`, `%27`, `\'`), and `&` written as `&amp;`;
+- with accented letters stored either way, or written as `\u00e9`, `&#233;`, `&eacute;` or `%C3%A9`;
 - in Chinese, Japanese, Korean and Thai text, where words aren't separated by spaces.
+
+Your text is otherwise left exactly as it is: only the matched stretches change.
 
 It does **not** guess other formats. `555-201-8876` won't match `(555) 201-8876`, and `Mary-Jane` won't match `Mary Jane`. Add each form you expect as its own item, and check the result before you share it.
 

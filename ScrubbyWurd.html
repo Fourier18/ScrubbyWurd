@@ -6,7 +6,7 @@
 <!-- Content-Security-Policy: the browser itself blocks every outside connection and any
      script or style other than the ones in this file. After editing the page's script or style
      block, run  python tools/update-csp.py  to refresh the two hashes, or the page won't run. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Pix+BDDXhNKpQvDckiJX84zbwWNxOL4R9G3v4DIDG3g='; style-src 'sha256-YN1hVU74ToVsYBOXM4LeohxIJOMc/AuyZg0arfgNLRs='; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-qfSeL6LhcSc+04USQYhlV2nYgNkr7ToVgyEsymb4rAs='; style-src 'sha256-0pWq4XcigRKTDzIkC7Thpy2o5vQHjlYN+bLaSsU30kQ='; base-uri 'none'; form-action 'none'">
 <title>ScrubbyWurd</title>
 <!-- Single self-contained file: no network requests, nothing leaves this page. -->
 <style>
@@ -45,6 +45,9 @@
 :root{ --rep-bg:color-mix(in srgb,var(--accent) 24%,var(--field)); --rep-ink:var(--ink); }
 *{box-sizing:border-box}
 html,body{height:100%}
+/* Hidden until the script has checked it isn't framed by another site (so a frame with
+   scripts blocked can't show a working-looking copy). */
+html:not(.ready) body{visibility:hidden}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column}
 header{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
 h1{font-size:16px;margin:0;font-weight:650}
@@ -255,8 +258,10 @@ if (window.top !== window.self) {
   const a = document.createElement('a');
   a.href = location.href; a.target = '_top'; a.textContent = 'Open ScrubbyWurd in its own tab';
   document.body.append(a);
+  document.documentElement.classList.add('ready');
   throw new Error('framed');
 }
+document.documentElement.classList.add('ready');
 const $ = id => document.getElementById(id);
 const pairsEl = $('pairs'), inEl = $('input'), outEl = $('output');
 
@@ -310,43 +315,79 @@ function loadPairs(list){
 // Everything below builds one search pattern per Find item. The item is matched as
 // literal text; the extra rules only catch the same name written in other ways that
 // are common in logs, JSON, web pages and copied text, so a name can't slip through.
-const WORD_CH = /[\p{L}\p{N}]/u;
+// Letter/number tests are written as alternations, not [\p{L}\p{N}] classes: some Chromium
+// versions get the class form wrong for letters outside the basic plane (e.g. 𝐀, 𠮷).
+const WORD_CH = /\p{L}|\p{N}/u;
 // Scripts written without spaces between words: a name there usually touches other letters,
 // so "whole words" can't apply to its edges.
-const NO_SPACE_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+const NO_SPACE_SCRIPT = /\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}|\p{Script=Thai}|\p{Script=Lao}|\p{Script=Khmer}|\p{Script=Myanmar}/u;
 const escRe = s => s.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&');
-// Invisible characters that can sit inside a name: soft hyphen, zero-width space/joiners, word joiner.
-const INVIS = String.raw`[\u{AD}\u{200B}-\u{200D}\u{2060}]*`;
-// Between the words of an item: any whitespace, or whitespace written as an escape
-// or encoding (\n \t \r in JSON/logs, %20 and + in URLs, &nbsp; in HTML).
-const GAP = String.raw`(?:[\s\u{AD}\u{200B}-\u{200D}\u{2060}]|\\[ntr]|%20|\+|&nbsp;|&#0*160;|&#[xX]0*[aA]0;)+`;
+// Invisible characters that can sit inside a name: soft hyphen, zero-width space/joiners,
+// left-to-right/right-to-left marks, word joiner, byte-order mark. Matching runs on a copy of
+// the text with these removed (see withoutInvisible), so patterns never need to allow for them.
+const INVIS_ANY = /[\u{AD}\u{200B}-\u{200F}\u{2060}\u{FEFF}]/gu;
+// Between the words of an item: spaces, tabs, _, whitespace written as an escape or encoding
+// (\n \t in JSON/logs, %20 and + in URLs, &nbsp; in HTML), and at most one real line break,
+// so a name split across two lines is caught but separate paragraphs aren't joined.
+const H = String.raw`(?:[\t\v\f \u{A0}\u{1680}\u{2000}-\u{200A}\u{202F}\u{205F}\u{3000}_+]|\\[ntr]|%20|&(?:nbsp|#0*160|#[xX]0*[aA]0);)`;
+const NL = String.raw`(?:\r\n?|[\n\u{2028}\u{2029}])`;
+const GAP = `(?:${H}|${NL}(?!${H}*${NL}))+`;
 // Whole-word edges. The end is checked inside the pattern; the start is checked on each
 // match in leftOk() (much faster than a lookbehind tried at every position). Text right
 // after an escape (\t or \n, a JSON unicode escape, or a URL code like %20) counts as a word start.
-const RIGHT = String.raw`(?![\p{L}\p{N}])`;
-const ENDS_IN_WORD = /[\p{L}\p{N}]$/u;
+// Accent marks count as part of a word, so "Jose" doesn't match the start of "José" stored as e + ́.
+const RIGHT = String.raw`(?!\p{L}|\p{N}|\p{M})`;
+const ENDS_IN_WORD = /(?:\p{L}|\p{N}|\p{M})$/u;
 const ENDS_IN_ESCAPE = /(?:\\[ntrbf]|\\u[0-9A-Fa-f]{4}|%[0-9A-Fa-f]{2})$/;
 const leftOk = (text, i) => i === 0 || !ENDS_IN_WORD.test(text.slice(Math.max(0, i - 2), i))
   || ENDS_IN_ESCAPE.test(text.slice(Math.max(0, i - 6), i));
+
+// The text with invisible characters removed, plus where each remaining character came from,
+// so a match found in the copy maps back to the exact stretch of the original.
+function withoutInvisible(text){
+  INVIS_ANY.lastIndex = 0;
+  if (!INVIS_ANY.test(text)) return { s: text, at: i => i };
+  const keep = [], pos = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0xAD || (c >= 0x200B && c <= 0x200F) || c === 0x2060 || c === 0xFEFF) continue;
+    keep.push(text[i]); pos.push(i);
+  }
+  pos.push(text.length);
+  return { s: keep.join(''), at: i => pos[i] };
+}
 const APOS = new Set(["'", '\u{2019}', '\u{2018}', '\u{2BC}']);
-const hexAnyCase = h => [...h].map(c => /[a-f]/.test(c) ? `[${c}${c.toUpperCase()}]` : c).join('');
+// Straight, curly and modifier apostrophes, and their escapes in code, JSON, URLs and HTML.
+const APOS_SRC = String.raw`(?:['\u{2018}\u{2019}\u{2BC}]|\\'|\\u0027|\\u2019|%27|&#0*39;|&#[xX]0*27;|&apos;|&rsquo;|&#0*8217;)`;
+const AMP_SRC = String.raw`(?:&(?:amp;)?|&#0*38;|%26|\\u0026)`;
+const hexAnyCase = h => [...h].map(c => /[a-f]/i.test(c) ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c).join('');
+// HTML names for accented Latin letters, e.g. &eacute; for é.
+const ACCENT_ENTITY = { '\u{301}': 'acute', '\u{300}': 'grave', '\u{302}': 'circ', '\u{308}': 'uml', '\u{303}': 'tilde', '\u{327}': 'cedil', '\u{30A}': 'ring' };
 
 // One character of a Find item, plus the other ways it's commonly written.
 function charSource(ch){
-  if (APOS.has(ch))   // straight, curly and modifier apostrophes, plus their JSON and HTML escapes
-    return String.raw`(?:['\u{2018}\u{2019}\u{2BC}]|\\u0027|\\u2019|&#0*39;|&#[xX]0*27;|&apos;|&rsquo;|&#0*8217;)`;
+  if (APOS.has(ch)) return APOS_SRC;
+  if (ch === '&') return AMP_SRC;
   const cp = ch.codePointAt(0);
-  if (cp > 0x7f && cp <= 0xffff) {   // accented and non-Latin letters: JSON \uXXXX and HTML &#NNN; escapes
-    const hex = cp.toString(16);
-    return `(?:${escRe(ch)}|\\\\u${hexAnyCase(hex.padStart(4, '0'))}|&#0*${cp};|&#[xX]0*${hexAnyCase(hex)};)`;
-  }
-  return escRe(ch);
+  if (cp <= 0x7f) return escRe(ch);
+  const hex = cp.toString(16);
+  const alts = [escRe(ch)];
+  const nfd = ch.normalize('NFD');
+  if (nfd !== ch) alts.push(escRe(nfd));                                   // same letter as base + accent mark
+  if (cp <= 0xffff) alts.push(String.raw`\\u` + hexAnyCase(hex.padStart(4, '0')));   // JSON: é
+  alts.push(`&#0*${cp};`, `&#[xX]0*${hexAnyCase(hex)};`);                  // HTML: &#233; &#xe9;
+  const [base, mark] = [...nfd];
+  if ([...nfd].length === 2 && /[A-Za-z]/.test(base) && ACCENT_ENTITY[mark])
+    alts.push(`&${base}${ACCENT_ENTITY[mark]};`);                          // HTML: &eacute;
+  alts.push(hexAnyCase(encodeURIComponent(ch)));                            // URL: %C3%A9
+  return '(?:' + alts.join('|') + ')';
 }
 
 // Returns the pattern and whether the match's start must be checked for a word edge.
 function findSource(find, whole){
-  const t = find.trim().normalize('NFC');
-  let src = t.split(/\s+/).map(w => [...w].map(charSource).join(INVIS)).join(GAP);
+  // Invisible characters typed or pasted into the Find box are dropped, as they are from the text being searched.
+  const t = find.replace(INVIS_ANY, '').trim().normalize('NFC');
+  let src = t.split(/\s+/).map(w => [...w].map(charSource).join('')).join(GAP);
   let left = false;
   if (whole) {
     const chars = [...t], first = chars[0], last = chars.at(-1);
@@ -368,35 +409,52 @@ function batches(active){
   return out;
 }
 
+// Building a pattern for a long list is the slow part, so built patterns are reused while the
+// list and options stay the same (e.g. while typing or pasting into the input).
+const patternCache = new Map();
+function compiled(source, flags){
+  const key = flags + '\n' + source;
+  let re = patternCache.get(key);
+  if (!re) {
+    if (patternCache.size > 200) patternCache.clear();
+    re = new RegExp(source, flags);
+    patternCache.set(key, re);
+  }
+  return re;
+}
+
 function replaceAll(text, pairs, opts){
   const seen = new Set();
   const active = [];
   for (const p of pairs) {
-    p.dup = false; p.merged = 0;
-    if (!p.find.trim()) continue;
-    const norm = p.find.trim().normalize('NFC').replace(/\s+/g, ' ');
+    p.dup = false; p.merged = 0; p.covered = 0;
+    const norm = p.find.replace(INVIS_ANY, '').trim().normalize('NFC').replace(/\s+/g, ' ');
+    if (!norm) continue;
     const key = opts.ci ? norm.toLowerCase() : norm;
     if (seen.has(key)) { p.dup = true; continue; }
     seen.add(key);
     active.push({ p, ...findSource(p.find, opts.whole), len: norm.length });
   }
-  text = text.normalize('NFC');   // one form for accented letters, so é typed either way matches
+  // The text itself is never rewritten: only matched stretches change.
   if (!active.length || !text) return [{ s: text }];
   // Within a batch, longer items come first, so "John Smith" wins over "John" at the same spot.
   active.sort((a, b) => b.len - a.len);
 
   // Collect every place an item matches, including matches that start inside another one.
+  // Matching runs on the copy without invisible characters; positions are mapped back.
+  const { s, at } = withoutInvisible(text);
   const cands = [];
   for (const batch of batches(active)) {
-    const re = new RegExp(batch.map(x => '(' + x.src + ')').join('|'), 'gu' + (opts.ci ? 'i' : ''));
+    const re = compiled(batch.map(x => '(' + x.src + ')').join('|'), 'gu' + (opts.ci ? 'i' : ''));
+    re.lastIndex = 0;
     let m;
-    while ((m = re.exec(text))) {
+    while ((m = re.exec(s))) {
       let g = 1; while (m[g] === undefined) g++;
       const x = batch[g - 1];
       // All items that can match at this spot share its left edge, so a failed check here
       // can't hide a different item that would have passed.
-      if (m[0] && (!x.left || leftOk(text, m.index)))
-        cands.push({ start: m.index, end: m.index + m[0].length, p: x.p });
+      if (m[0] && (!x.left || leftOk(s, m.index)))
+        cands.push({ start: at(m.index), end: at(m.index + m[0].length - 1) + 1, p: x.p });
       re.lastIndex = m.index + 1;
     }
   }
@@ -407,12 +465,13 @@ function replaceAll(text, pairs, opts){
   const chosen = [];
   let pos = 0;
   for (const c of cands) {
+    const last = chosen.at(-1);
     if (c.start >= pos) { chosen.push({ ...c, merged: [] }); pos = c.end; }
+    else if (c.p === last.p) continue;          // an item overlapping itself ("ana" in "banana"): normal find-and-replace
     else if (c.end > pos) {
-      const last = chosen.at(-1);
       last.end = pos = c.end;
       last.merged.push(c.p);
-    }
+    } else c.p.covered++;                       // found only inside a longer item's replacement
   }
   const segs = [];
   pos = 0;
@@ -463,9 +522,10 @@ function update(){
     const h = p.row.querySelector('.hits');
     const counted = hasText && p.find.trim() && !p.dup;
     h.textContent = counted ? p.hits : '';
-    h.classList.toggle('zero', !!counted && p.hits === 0);
+    h.classList.toggle('zero', !!counted && p.hits === 0 && !p.covered);
     h.classList.toggle('merged', !!counted && p.merged > 0);
     h.title = p.dup ? 'Same as an earlier row'
+      : counted && !p.hits && p.covered ? `Found ${p.covered}× only inside a longer item, which replaced it`
       : counted && !p.hits ? 'Not found in the input'
       : counted && p.merged ? `Overlapped another item ${p.merged}× and was replaced together with it`
       : '';
@@ -493,22 +553,51 @@ outEl.addEventListener('mouseover', e => {
   tip.style.top = (r.bottom + 6) + 'px';
   tip.hidden = false;
 });
-outEl.addEventListener('mouseout', e => { if (e.target.closest('mark.rep')) tip.hidden = true; });
-outEl.addEventListener('scroll', () => { tip.hidden = true; });
-// Copying a selection from the result puts plain text only on the clipboard.
-outEl.addEventListener('copy', e => {
+const hideTip = () => { tip.hidden = true; tip.textContent = ''; };
+outEl.addEventListener('mouseout', e => { if (e.target.closest('mark.rep')) hideTip(); });
+outEl.addEventListener('scroll', hideTip);
+// Ctrl+A in the result selects only the result, not the whole page.
+outEl.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+    e.preventDefault();
+    getSelection().selectAllChildren(outEl);
+  }
+});
+// Any copy that touches the result puts plain text only on the clipboard, and only the
+// part of the selection that's inside the result.
+document.addEventListener('copy', e => {
+  const sel = getSelection();
+  if (!sel.rangeCount || !sel.containsNode(outEl, true)) return;   // copies elsewhere behave normally
+  let text = '';
+  for (let i = 0; i < sel.rangeCount; i++) {
+    const r = sel.getRangeAt(i).cloneRange();
+    const inside = document.createRange();
+    inside.selectNodeContents(outEl);
+    if (r.compareBoundaryPoints(Range.START_TO_START, inside) < 0) r.setStart(inside.startContainer, inside.startOffset);
+    if (r.compareBoundaryPoints(Range.END_TO_END, inside) > 0) r.setEnd(inside.endContainer, inside.endOffset);
+    if (!r.collapsed) text += r.toString();
+  }
   e.preventDefault();
-  e.clipboardData.setData('text/plain', window.getSelection().toString());
+  e.clipboardData.setData('text/plain', text.replace(/\u{200B}/gu, ''));
 });
 
-let timer;
-// Very large inputs wait a little longer after typing, so the page stays responsive.
-const schedule = () => { clearTimeout(timer); timer = setTimeout(update, inEl.value.length > 300000 ? 600 : 100); };
+let timer = null;
+// Long lists or very large inputs wait a little longer after typing, so the page stays responsive.
+const schedule = () => {
+  clearTimeout(timer);
+  const heavy = inEl.value.length > 300000 || pairsEl.children.length > 500;
+  if (heavy) $('stats').textContent = 'Updating…';
+  timer = setTimeout(() => { timer = null; update(); }, heavy ? 600 : 100);
+};
+// Before Copy or Save, run any update still waiting, so the result is never out of date.
+const flush = () => { if (timer !== null) { clearTimeout(timer); timer = null; update(); } };
 
 // ---------- actions ----------
 function toast(msg){
   const t = $('toast'); t.textContent = msg; t.classList.add('on');
-  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 1800);
+  clearTimeout(toast.t);
+  // Clear the text once it has faded, so an old message (which may quote a name) doesn't linger.
+  toast.t = setTimeout(() => { t.classList.remove('on'); setTimeout(() => { if (!t.classList.contains('on')) t.textContent = ''; }, 300); }, 1800);
 }
 function download(name, text){
   const a = document.createElement('a');
@@ -582,9 +671,10 @@ const isHeader = p => /^find$/i.test(p[0].trim()) && /^replace/i.test((p[1] || '
 const LINES = /\r\n|\r|\n/;
 // A cell wrapped in quotes (Excel does this when saving tab-delimited text) loses the quotes.
 const unquoteCell = s => /^"[\s\S]*"$/.test(s) && s.length >= 2 ? s.slice(1, -1).replace(/""/g, '"') : s;
-// Export puts ' before cells that a spreadsheet would run as a formula; import takes it off again.
-const FORMULA_START = /^[=+\-@\t\r]/;
-const unguard = s => /^'[=+\-@\t\r]/.test(s) ? s.slice(1) : s;
+// Export puts ' before cells that a spreadsheet would run as a formula (and before ones that
+// already start with ' and then a formula character, so they survive the trip); import takes one off.
+const FORMULA_START = /^'?[=+\-@\t\r]/;
+const unguard = s => /^''?[=+\-@\t\r]/.test(s) ? s.slice(1) : s;
 
 function parseTabbed(text){
   return stripBom(text).split(LINES).filter(l => l.trim()).map(l => {
@@ -599,41 +689,52 @@ function parseCommas(text){
     return i < 0 ? [l.trim(), null] : [l.slice(0, i).trim(), l.slice(i + 1).trim()];
   });
 }
-// The separator is whichever of , ; or Tab appears most in the first line (outside quotes).
+// The separator: taken from a "Find…Replace" header if there is one, otherwise whichever of
+// Tab, ; or , appears on the most lines (outside quotes). When ; and , are both on every
+// line, the file is ambiguous: ; wins (commas are common inside names, "Smith, John"), with a warning.
 function detectDelimiter(text){
-  const first = (text.split(LINES).find(l => l.trim()) || '').replace(/"[^"]*"/g, '');
-  const counts = [',', ';', '\t'].map(d => [d, first.split(d).length - 1]);
-  counts.sort((a, b) => b[1] - a[1]);
-  return counts[0][1] ? counts[0][0] : ',';
+  const lines = text.split(LINES).filter(l => l.trim()).slice(0, 50);
+  const head = (lines[0] || '').match(/^\s*"?find"?\s*([,;\t])\s*"?replace/i);
+  if (head) return { d: head[1], ambiguous: false };
+  const bare = lines.map(l => l.replace(/"[^"]*"/g, ''));
+  const onLines = d => bare.filter(l => l.includes(d)).length;
+  const order = ['\t', ';', ','];
+  const best = order.reduce((a, d) => onLines(d) > onLines(a) ? d : a, order[0]);
+  if (!onLines(best)) return { d: ',', ambiguous: false };
+  const ambiguous = best === ';' && onLines(',') === onLines(';');
+  return { d: best, ambiguous };
 }
 // Returns { list, warning }. If a quote is never closed, the file is read line by line
-// instead, so one stray quote can't swallow the rest of the list.
+// instead, so one stray quote can't swallow the rest of the list. Unquoted cells are trimmed;
+// quoted ones keep their spaces (a replacement can be a single space).
 function parseCsv(text){
   text = stripBom(text);
-  const d = detectDelimiter(text);
-  const rows = []; let row = [], cell = '', q = false;
+  const { d, ambiguous } = detectDelimiter(text);
+  const rows = []; let row = [], cell = '', q = false, quoted = false;
+  const endCell = () => { row.push(quoted ? cell : cell.trim()); cell = ''; quoted = false; };
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (q) {
       if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
       else if (c === '"') q = false;
       else cell += c;
-    } else if (c === '"' && cell === '') q = true;
-    else if (c === d) { row.push(cell); cell = ''; }
+    } else if (c === '"' && !cell.trim()) { q = quoted = true; cell = ''; }
+    else if (c === d) endCell();
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && text[i + 1] === '\n') i++;
-      row.push(cell); rows.push(row); row = []; cell = '';
+      endCell(); rows.push(row); row = [];
     } else cell += c;
   }
-  let warning = '';
+  const warnings = [];
+  if (ambiguous) warnings.push('Every line has both a semicolon and a comma, so the split below used the semicolon. Check that each item is divided in the right place.');
   let out = rows;
   if (q) {
-    warning = 'A quote mark in this file is never closed, so each line was read on its own. Check the items below.';
-    out = text.split(LINES).map(l => l.split(d).map(unquoteCell));
-  } else if (cell || row.length) { row.push(cell); out.push(row); }
+    warnings.push('A quote mark in this file is never closed, so each line was read on its own. Check the items below.');
+    out = text.split(LINES).map(l => l.split(d).map(s => unquoteCell(s.trim())));
+  } else if (cell || row.length) { endCell(); out.push(row); }
   const list = out.filter(r => r.some(c => c.trim()))
-    .map(r => [unguard(r[0].trim()), r.length > 1 ? unguard(r[1].trim()) : null]);
-  return { list, warning };
+    .map(r => [unguard(r[0].trim()), r.length > 1 ? unguard(r[1]) : null]);
+  return { list, warning: warnings.join(' ') };
 }
 function toCsv(list){
   const cell = s => {
@@ -643,7 +744,12 @@ function toCsv(list){
   return '\u{FEFF}' + ['Find,Replace with', ...list.map(([f, r]) => cell(f) + ',' + cell(r))].join('\r\n') + '\r\n';
 }
 function toTabbed(list){
-  const clean = s => s.replace(/[\t\r\n]+/g, ' ');
+  // Values with spaces at either end, or already wrapped in quotes, are quoted so Import
+  // gives back exactly what was exported.
+  const clean = s => {
+    s = s.replace(/[\t\r\n]+/g, ' ');
+    return /^\s|\s$|^"[\s\S]*"$/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
   return list.map(([f, r]) => clean(f) + '\t' + clean(r)).join('\r\n') + '\r\n';
 }
 const currentList = () => readPairs().filter(p => p.find.trim()).map(p => [p.find, p.rep]);
@@ -765,12 +871,14 @@ async function copyText(text){
 }
 const plainOutput = () => lastSegs.map(g => g.s).join('');
 $('btnCopy').onclick = async () => {
+  flush();
   const text = plainOutput();
   if (!text) { toast('Nothing to copy'); return; }
   await copyText(text);
   toast('Result copied');
 };
 $('btnSave').onclick = () => {
+  flush();
   const text = plainOutput();
   if (!text) { toast('Nothing to save'); return; }
   download(lastName, text);
