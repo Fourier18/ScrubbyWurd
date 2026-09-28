@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redactor</title>
+<!-- Single self-contained file: no network requests, nothing leaves this page. -->
+<style>
+/* Themes: same seven palettes as Coding Tutor (theme.css, theme-dark.css, themes.css).
+   bg = page, panel = panel-bg, field = output-bg, ink = text, muted = text-dim,
+   line = border, accent-ink = on-accent, zero = error. */
+:root,[data-theme="light"]{
+  --bg:#ffffff; --panel:#f7f7f8; --field:#ffffff; --ink:#1c1c1f; --muted:#6b6b73; --line:#e2e2e5;
+  --accent:#2563eb; --accent-ink:#ffffff; --zero:#b3261e;
+}
+[data-theme="dark"]{
+  --bg:#1a1a1e; --panel:#212126; --field:#1a1a1e; --ink:#e8e8ea; --muted:#97979f; --line:#33333a;
+  --accent:#5b8dee; --accent-ink:#0f1a2e; --zero:#ff6b64;
+}
+[data-theme="forest"]{
+  --bg:#13201a; --panel:#182a21; --field:#13201a; --ink:#dfeee4; --muted:#8fb09b; --line:#2a4033;
+  --accent:#4caf7a; --accent-ink:#0e1a13; --zero:#ff7a6e;
+}
+[data-theme="azure-night"]{
+  --bg:#0d1b2e; --panel:#12233a; --field:#0d1b2e; --ink:#e3ecf7; --muted:#8aa3c2; --line:#1f3656;
+  --accent:#3d9bff; --accent-ink:#06121f; --zero:#ff6b6b;
+}
+[data-theme="desert-sunset"]{
+  --bg:#fdf6ec; --panel:#f6e7d3; --field:#fffaf3; --ink:#3a2a1c; --muted:#735539; --line:#e6cfae;
+  --accent:#b8501f; --accent-ink:#ffffff; --zero:#b3261e;
+}
+[data-theme="arctic-dawn"]{
+  --bg:#f5f9fc; --panel:#e9f1f7; --field:#fbfdfe; --ink:#1b2a36; --muted:#4f6475; --line:#d3e1ec;
+  --accent:#16788e; --accent-ink:#ffffff; --zero:#b3261e;
+}
+[data-theme="plum-midnight"]{
+  --bg:#1c1524; --panel:#231a2e; --field:#1c1524; --ink:#eee6f5; --muted:#a592b8; --line:#3a2c4a;
+  --accent:#b77ce8; --accent-ink:#1c1524; --zero:#ff7a8a;
+}
+/* Replacement highlight: a tint of each theme's accent, text stays the theme's text color. */
+:root{ --rep-bg:color-mix(in srgb,var(--accent) 24%,var(--field)); --rep-ink:var(--ink); }
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column}
+header{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+h1{font-size:16px;margin:0;font-weight:650}
+.opts{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;color:var(--muted)}
+.opts label{display:flex;gap:6px;align-items:center;cursor:pointer}
+#stats{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}
+#stats b{color:var(--ink);font-weight:600}
+main{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:12px 16px 16px;min-height:0}
+section{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 10px;border-bottom:1px solid var(--line)}
+.bar h2{font-size:12px;margin:0 auto 0 0;font-weight:650;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+textarea,pre,input[type=text]{font:12.5px/1.55 ui-monospace,"Cascadia Mono",Consolas,monospace;color:var(--ink);background:var(--field)}
+textarea,pre{flex:1;margin:0;padding:10px 12px;border:0;resize:none;outline:none;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4}
+textarea::placeholder,input::placeholder{color:var(--muted);opacity:.75}
+pre:empty::before{content:"Result appears here.";color:var(--muted)}
+select{font:inherit;font-size:12.5px;padding:2px 4px;border-radius:5px;border:1px solid var(--line);background:var(--field);color:var(--ink);cursor:pointer}
+input[type=checkbox]{accent-color:var(--accent)}
+button{font:inherit;font-size:12.5px;padding:3px 10px;border-radius:5px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--muted)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button:focus-visible,textarea:focus-visible,pre:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+mark.rep{background:var(--rep-bg);color:var(--rep-ink);border-radius:3px;padding:0 1px}
+
+/* find / replace list */
+#pairsWrap{flex:1;overflow:auto;background:var(--field)}
+.head,.pair{display:grid;grid-template-columns:1fr 1fr 2.6em 1.8em;gap:6px;align-items:center;padding:0 10px}
+.head{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding-top:6px;padding-bottom:6px;font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;z-index:1}
+.head span:nth-child(3){text-align:right}
+.pair{padding-top:5px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+.pair input{width:100%;min-width:0;border:1px solid var(--line);border-radius:5px;padding:4px 7px;background:var(--panel)}
+.pair .hits{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted);font-size:12.5px}
+.pair .hits.zero{color:var(--zero);font-weight:600}
+.pair .del{border:0;background:none;color:var(--muted);padding:2px;font-size:16px;line-height:1}
+.pair .del:hover{color:var(--ink)}
+.pair.blank .del{visibility:hidden}
+.pair.dup input.f{text-decoration:line-through;color:var(--muted)}
+
+/* dialogs */
+dialog{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);padding:0;width:min(620px,calc(100vw - 32px));max-height:calc(100vh - 32px);box-shadow:0 12px 40px rgba(0,0,0,.35)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog{overflow-x:hidden}
+.dlg{padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+.dlg > *{min-width:0;max-width:100%}
+.way{min-width:0;overflow:hidden}
+.way .ex{max-width:100%;overflow:auto}
+.dlg h3{margin:0;font-size:17px}
+.dlg p{margin:0;color:var(--muted)}
+.dlg p b{color:var(--ink)}
+.ways{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.way{border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--field);display:flex;flex-direction:column;gap:6px;font-size:13px}
+.way span{color:var(--muted)}
+kbd{font:600 11.5px ui-monospace,Consolas,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--panel);color:var(--ink)}
+pre.ex{flex:none;padding:6px 8px;border:1px solid var(--line);border-radius:5px;background:var(--panel);font-size:12px;overflow:auto;white-space:pre}
+pre.ex i{font-style:normal;color:var(--accent-ink);background:var(--accent);border-radius:3px;padding:0 4px;margin:0 6px;font-size:10.5px}
+table.ex{border-collapse:collapse;font:12px ui-monospace,Consolas,monospace;width:auto;margin:0;background:var(--panel)}
+table.ex th,table.ex td{border:1px solid var(--line);padding:2px 7px}
+table.ex th{color:var(--muted);font-weight:500;background:var(--field);font-family:system-ui,sans-serif;font-size:11px}
+.dlg .row{display:flex;flex-wrap:wrap;gap:8px}
+.dlg .lbl{color:var(--muted);font-size:13px;margin-top:4px}
+#impPaste{flex:none;width:100%;border:1px solid var(--line);border-radius:6px;min-height:80px;resize:vertical;white-space:pre}
+#impPreview:empty{display:none}
+#impPreview{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--field);font-size:13px}
+#impPreview .sum{margin-bottom:6px}
+#impPreview .warn{color:var(--zero)}
+#impPreview .scroll{max-height:170px;overflow:auto}
+#impPreview table{margin:0;font:12px ui-monospace,Consolas,monospace}
+#impPreview td{border-bottom:1px solid var(--line);padding:2px 10px 2px 0;overflow-wrap:anywhere}
+.actions{flex-wrap:wrap}
+#impPreview td.none{color:var(--zero);font-family:system-ui,sans-serif;font-style:italic}
+#impPreview label{display:flex;gap:6px;align-items:center;margin-top:6px;cursor:pointer}
+.choices{display:flex;flex-direction:column;gap:8px}
+.choice{text-align:left;white-space:normal;display:flex;flex-direction:column;gap:2px;padding:9px 12px;background:var(--field);border-radius:8px}
+.choice b{font-size:13.5px}
+.choice span{color:var(--muted)}
+.choice:hover{border-color:var(--accent)}
+.dlg .note{font-size:12.5px}
+.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+button:disabled{opacity:.45;cursor:default}
+@media (max-width:640px){ .ways{grid-template-columns:1fr} }
+
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:7px 14px;border-radius:6px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.on{opacity:1}
+@media (max-width:1000px){
+  body{height:auto}
+  main{grid-template-columns:1fr}
+  section{height:65vh}
+  #stats{margin-left:0;width:100%}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Redactor</h1>
+  <div class="opts">
+    <label title="'john smith' also finds 'John Smith' and 'JOHN SMITH'"><input type="checkbox" id="optCase" checked> Ignore case</label>
+    <label title="'Ann' won't change 'Annual'"><input type="checkbox" id="optWord" checked> Whole words only</label>
+    <label>Theme <select id="optTheme">
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+      <option value="forest">Forest Green</option>
+      <option value="azure-night">Azure Night</option>
+      <option value="desert-sunset">Desert Sunset</option>
+      <option value="arctic-dawn">Arctic Dawn</option>
+      <option value="plum-midnight">Plum Midnight</option>
+    </select></label>
+  </div>
+  <div id="stats" aria-live="polite"></div>
+</header>
+
+<main>
+  <section>
+    <div class="bar">
+      <h2>Find &amp; Replace</h2>
+      <button id="btnImport" title="Load a saved list">Import</button>
+      <button id="btnExport" title="Save this list to a file">Export</button>
+    </div>
+    <div id="pairsWrap">
+      <div class="head"><span>Find</span><span>Replace with</span><span>Hits</span><span></span></div>
+      <div id="pairs"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="bar">
+      <h2>Input</h2>
+      <button id="btnAdd" class="primary" title="Select text in the input or result, then click to add it to Find">+ Add selection</button>
+      <button id="btnOpen" title="Open a text file (or drop one here)">Open</button>
+      <button id="btnClear">Clear</button>
+    </div>
+    <textarea id="input" spellcheck="false" placeholder="Paste text here, or drop a file."></textarea>
+  </section>
+
+  <section>
+    <div class="bar">
+      <h2>Result</h2>
+      <button id="btnCopy" class="primary">Copy</button>
+      <button id="btnSave">Save</button>
+    </div>
+    <pre id="output" tabindex="0"></pre>
+  </section>
+</main>
+
+<input type="file" id="fileText" accept=".txt,.log,.json,.csv,.md,.xml,.html,text/*" hidden>
+<input type="file" id="fileList" accept=".txt,.tsv,.csv,text/plain,text/csv" hidden>
+
+<!-- Import: explain the format, take a file or pasted text, preview, then confirm. -->
+<dialog id="dlgImport" aria-labelledby="impTitle">
+  <div class="dlg">
+    <h3 id="impTitle">Import a list</h3>
+    <p>A list has one item per line: the text to find, then what to replace it with. Two kinds of file work:</p>
+    <div class="ways">
+      <div class="way">
+        <b>Text file (.txt)</b>
+        <span>Made in Notepad. Press the <kbd>Tab</kbd> key between the two parts.</span>
+        <pre class="ex">John Smith<i>⇥ Tab</i>Mark Jones
+Acme Corp<i>⇥ Tab</i>[company]</pre>
+      </div>
+      <div class="way">
+        <b>Spreadsheet (.csv)</b>
+        <span>Made in Excel or Google Sheets. Find in column A, replacement in column B. Save as <em>CSV UTF-8</em>.</span>
+        <table class="ex"><tr><th></th><th>A</th><th>B</th></tr><tr><th>1</th><td>John Smith</td><td>Mark Jones</td></tr><tr><th>2</th><td>Acme Corp</td><td>[company]</td></tr></table>
+      </div>
+    </div>
+    <div class="row">
+      <button type="button" id="impChoose" class="primary">Choose a file…</button>
+      <button type="button" id="impSample">Download an example list</button>
+    </div>
+    <label class="lbl" for="impPaste">Or paste the list here. Copying two columns from a spreadsheet works too.</label>
+    <textarea id="impPaste" rows="4" spellcheck="false" placeholder="John Smith	Mark Jones"></textarea>
+    <div id="impPreview" aria-live="polite"></div>
+    <div class="actions">
+      <button type="button" data-close>Cancel</button>
+      <button type="button" id="impAdd" disabled>Add to my list</button>
+      <button type="button" id="impReplace" class="primary" disabled>Replace my list</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Export: say what each format is for, then save. -->
+<dialog id="dlgExport" aria-labelledby="expTitle">
+  <div class="dlg">
+    <h3 id="expTitle">Export your list</h3>
+    <p id="expCount">Save your list to a file so you can load it again later with <b>Import</b>, on this computer or another one.</p>
+    <div class="choices">
+      <button type="button" class="choice" id="expTxt"><b>Text file (.txt)</b><span>Opens in Notepad. Each line is the find text, a Tab, then the replacement.</span></button>
+      <button type="button" class="choice" id="expCsv"><b>Spreadsheet (.csv)</b><span>Opens in Excel or Google Sheets as two columns. Edit it there, save it as CSV, and import it again.</span></button>
+      <button type="button" class="choice" id="expCopy"><b>Copy to clipboard</b><span>Paste straight into a spreadsheet (two columns) or a text file.</span></button>
+    </div>
+    <p class="note">The list holds the original names you're hiding. Keep the file somewhere private.</p>
+    <div class="actions"><button type="button" data-close>Close</button></div>
+  </div>
+</dialog>
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const pairsEl = $('pairs'), inEl = $('input'), outEl = $('output');
+
+// ---------- storage (the list + options only; input text is never saved) ----------
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v){ try { localStorage.setItem(k, v); } catch {} }
+};
+
+// ---------- find / replace list ----------
+function rowHtml(){
+  return `<input type="text" class="f" placeholder="find" spellcheck="false" aria-label="Find">` +
+    `<input type="text" class="r" placeholder="replace with" spellcheck="false" aria-label="Replace with">` +
+    `<span class="hits"></span><button class="del" title="Remove" aria-label="Remove">×</button>`;
+}
+function addRow(find = '', rep = ''){
+  const row = document.createElement('div');
+  row.className = 'pair';
+  row.innerHTML = rowHtml();
+  row.querySelector('.f').value = find;
+  row.querySelector('.r').value = rep;
+  pairsEl.append(row);
+  return row;
+}
+const rows = () => [...pairsEl.children];
+// Always keep exactly one empty row at the bottom, so the list is open-ended.
+function ensureBlankRow(){
+  const all = rows();
+  const isBlank = r => !r.querySelector('.f').value && !r.querySelector('.r').value;
+  while (all.length > 1 && isBlank(all.at(-1)) && isBlank(all.at(-2))) all.pop().remove();
+  if (!all.length || !isBlank(all.at(-1))) addRow();
+  rows().forEach(r => r.classList.toggle('blank', isBlank(r)));
+}
+function readPairs(){
+  return rows().map(r => ({ row: r, find: r.querySelector('.f').value, rep: r.querySelector('.r').value, hits: 0 }));
+}
+function savePairs(){
+  const list = readPairs().filter(p => p.find || p.rep).map(p => [p.find, p.rep]);
+  store.set('redactor.pairs', JSON.stringify(list));
+}
+function loadPairs(list){
+  pairsEl.innerHTML = '';
+  for (const [f, r] of list) addRow(f, r);
+  ensureBlankRow();
+}
+
+// ---------- matching ----------
+const WORD_CH = /[\p{L}\p{N}]/u;
+const escRe = s => s.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&');
+// Whole-word check. Also treats text right after escape codes like \n, \t, é and %20
+// as the start of a word, so "\tJohn" in a log or JSON still counts as the word "John".
+const LEFT = String.raw`(?:(?<![\p{L}\p{N}])|(?<=\\[ntrbf])|(?<=\\u[0-9A-Fa-f]{4})|(?<=%[0-9A-Fa-f]{2}))`;
+const RIGHT = String.raw`(?![\p{L}\p{N}])`;
+
+function findSource(find, whole){
+  let src = find.trim().split(/\s+/).map(escRe).join(String.raw`\s+`);
+  if (whole) {
+    const t = find.trim();
+    if (WORD_CH.test(t[0])) src = LEFT + src;
+    if (WORD_CH.test(t.at(-1))) src += RIGHT;
+  }
+  return src;
+}
+
+function replaceAll(text, pairs, opts){
+  const seen = new Set();
+  const active = [];
+  for (const p of pairs) {
+    p.dup = false;
+    if (!p.find.trim()) continue;
+    const key = opts.ci ? p.find.trim().toLowerCase() : p.find.trim();
+    if (seen.has(key)) { p.dup = true; continue; }
+    seen.add(key);
+    active.push({ p, src: findSource(p.find, opts.whole) });
+  }
+  // Longest first, so "John Smith" is replaced before "John" can split it.
+  active.sort((a, b) => b.p.find.trim().length - a.p.find.trim().length);
+  if (!active.length || !text) return [{ s: text }];
+  // One pass over the text: replaced text is never searched again.
+  const re = new RegExp(active.map(x => '(' + x.src + ')').join('|'), 'gu' + (opts.ci ? 'i' : ''));
+  const segs = [];
+  let pos = 0, m;
+  while ((m = re.exec(text))) {
+    if (!m[0]) { re.lastIndex++; continue; }
+    let g = 1; while (m[g] === undefined) g++;
+    const p = active[g - 1].p;
+    p.hits++;
+    if (m.index > pos) segs.push({ s: text.slice(pos, m.index) });
+    segs.push({ s: p.rep, orig: m[0], hit: true });
+    pos = m.index + m[0].length;
+  }
+  if (pos < text.length) segs.push({ s: text.slice(pos) });
+  return segs;
+}
+
+// ---------- rendering ----------
+const escHtml = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let lastSegs = [], lastName = 'redacted.txt';
+
+function update(){
+  const opts = { ci: $('optCase').checked, whole: $('optWord').checked };
+  const pairs = readPairs();
+  const segs = replaceAll(inEl.value, pairs, opts);
+  lastSegs = segs;
+
+  outEl.innerHTML = segs.map(g => g.hit
+    ? `<mark class="rep" title="was: ${escHtml(g.orig)}">${escHtml(g.s) || '&#8203;'}</mark>`
+    : escHtml(g.s)).join('');
+
+  const hasText = inEl.value.length > 0;
+  for (const p of pairs) {
+    const h = p.row.querySelector('.hits');
+    const counted = hasText && p.find.trim() && !p.dup;
+    h.textContent = counted ? p.hits : '';
+    h.classList.toggle('zero', !!counted && p.hits === 0);
+    h.title = p.dup ? 'Same as an earlier row' : counted && !p.hits ? 'Not found in the input' : '';
+    p.row.classList.toggle('dup', p.dup);
+  }
+
+  const used = pairs.filter(p => p.find.trim() && !p.dup);
+  const total = used.reduce((n, p) => n + p.hits, 0);
+  $('stats').innerHTML = hasText
+    ? `<b>${total}</b> replaced · ${used.filter(p => p.hits).length} of ${used.length} found`
+    : `${used.length} item${used.length === 1 ? '' : 's'} in list`;
+}
+
+let timer;
+const schedule = () => { clearTimeout(timer); timer = setTimeout(update, 100); };
+
+// ---------- actions ----------
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 1800);
+}
+function download(name, text){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+pairsEl.addEventListener('input', () => { ensureBlankRow(); savePairs(); schedule(); });
+pairsEl.addEventListener('click', e => {
+  if (!e.target.classList.contains('del')) return;
+  e.target.closest('.pair').remove();
+  ensureBlankRow(); savePairs(); update();
+});
+// Enter in "find" jumps to "replace"; Enter in "replace" jumps to the next row.
+pairsEl.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const row = e.target.closest('.pair');
+  if (e.target.classList.contains('f')) row.querySelector('.r').focus();
+  else (row.nextElementSibling || row).querySelector('.f').focus();
+});
+
+inEl.addEventListener('input', schedule);
+for (const id of ['optCase', 'optWord'])
+  $(id).addEventListener('input', () => {
+    store.set('redactor.opts', JSON.stringify({ ci: $('optCase').checked, whole: $('optWord').checked }));
+    update();
+  });
+
+// Keep a selection in the result alive when the button is pressed.
+$('btnAdd').addEventListener('mousedown', e => e.preventDefault());
+$('btnAdd').onclick = () => {
+  const sel = window.getSelection();
+  let text = (sel && !sel.isCollapsed && outEl.contains(sel.anchorNode))
+    ? sel.toString()
+    : inEl.value.slice(inEl.selectionStart, inEl.selectionEnd);
+  text = text.replace(/\s+/g, ' ').trim();
+  if (!text) { toast('Select some text in the input or result first'); return; }
+  const blank = rows().at(-1);
+  blank.querySelector('.f').value = text;
+  ensureBlankRow(); savePairs(); update();
+  blank.querySelector('.r').focus();
+  blank.scrollIntoView({ block: 'nearest' });
+  toast(`Added “${text}” — now type what to replace it with`);
+};
+
+const setInput = (text, name) => {
+  inEl.value = text;
+  lastName = name ? name.replace(/(\.[^.]+)?$/, '.redacted$1') : 'redacted.txt';
+  update();
+};
+$('btnOpen').onclick = () => $('fileText').click();
+$('fileText').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  f.text().then(t => setInput(t, f.name));
+  e.target.value = '';
+};
+$('btnClear').onclick = () => { setInput(''); inEl.focus(); };
+
+// ---------- list files ----------
+// .txt: one pair per line, find <Tab> replacement.  .csv: column A find, column B replacement.
+const stripBom = t => t.replace(/^﻿/, '');
+const isHeader = p => /^find$/i.test(p[0].trim()) && /^replace/i.test((p[1] || '').trim());
+
+function parseTabbed(text){
+  return stripBom(text).split(/\r?\n/).filter(l => l.trim()).map(l => {
+    const i = l.indexOf('\t');
+    return i < 0 ? [l.trim(), null] : [l.slice(0, i).trim(), l.slice(i + 1).split('\t')[0].trim()];
+  });
+}
+function parseCommas(text){
+  return stripBom(text).split(/\r?\n/).filter(l => l.trim()).map(l => {
+    const i = l.indexOf(',');
+    return i < 0 ? [l.trim(), null] : [l.slice(0, i).trim(), l.slice(i + 1).trim()];
+  });
+}
+function parseCsv(text){
+  const rows = []; let row = [], cell = '', q = false;
+  text = stripBom(text);
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (c === '"') q = false;
+      else cell += c;
+    } else if (c === '"') q = true;
+    else if (c === ',' || c === ';') { row.push(cell); cell = ''; }   // ; = Excel in some regions
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim())).map(r => [r[0].trim(), r.length > 1 ? r[1].trim() : null]);
+}
+function toCsv(list){
+  const cell = s => /[",;\r\n]/.test(s) || /^\s|\s$/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  return '﻿' + ['Find,Replace with', ...list.map(([f, r]) => cell(f) + ',' + cell(r))].join('\r\n') + '\r\n';
+}
+function toTabbed(list){
+  const clean = s => s.replace(/[\t\r\n]+/g, ' ');
+  return list.map(([f, r]) => clean(f) + '\t' + clean(r)).join('\r\n') + '\r\n';
+}
+const currentList = () => readPairs().filter(p => p.find.trim()).map(p => [p.find, p.rep]);
+
+// ---------- import dialog ----------
+const imp = { text: '', kind: 'tab', name: '', commas: false, list: [] };
+
+function openImport(){
+  Object.assign(imp, { text: '', kind: 'tab', name: '', commas: false, list: [] });
+  $('impPaste').value = '';
+  renderImport();
+  $('dlgImport').showModal();
+}
+function loadImportFile(f){
+  f.text().then(t => {
+    Object.assign(imp, { text: t, name: f.name, kind: /\.csv$/i.test(f.name) ? 'csv' : 'tab', commas: false });
+    $('impPaste').value = '';
+    renderImport();
+  }, () => toast('Could not read that file'));
+}
+function renderImport(){
+  const box = $('impPreview');
+  if (!imp.text.trim()) {
+    imp.list = [];
+    box.innerHTML = '';
+  } else {
+    let list = imp.kind === 'csv' ? parseCsv(imp.text) : imp.commas ? parseCommas(imp.text) : parseTabbed(imp.text);
+    if (list.length && isHeader(list[0])) list = list.slice(1);
+    list = list.filter(p => p[0]);
+    imp.list = list;
+    const missing = list.filter(p => p[1] === null).length;
+    const noTabs = imp.kind === 'tab' && !imp.text.includes('\t');
+    const hasCommas = /,/.test(imp.text);
+    const src = imp.name ? `“${escHtml(imp.name)}”` : 'the pasted text';
+    let html = `<div class="sum"><b>${list.length}</b> item${list.length === 1 ? '' : 's'} found in ${src}.`;
+    if (missing) html += ` <span class="warn">${missing} line${missing === 1 ? ' has' : 's have'} no replacement` +
+      (imp.kind === 'csv' ? ' in column B' : ' (no Tab found)') + '. Those are imported with an empty Replace box, which removes the text.</span>';
+    html += '</div>';
+    if (noTabs && hasCommas || imp.commas)
+      html += `<label><input type="checkbox" id="impCommas"${imp.commas ? ' checked' : ''}> My list uses a comma between the two parts (split each line at its first comma)</label>`;
+    if (list.length)
+      html += '<div class="scroll"><table>' + list.slice(0, 300).map(([f, r]) =>
+        `<tr><td>${escHtml(f)}</td><td>→</td>${r === null || r === '' ? '<td class="none">nothing (text removed)</td>' : `<td>${escHtml(r)}</td>`}</tr>`).join('') +
+        (list.length > 300 ? `<tr><td colspan="3">…and ${list.length - 300} more</td></tr>` : '') + '</table></div>';
+    box.innerHTML = html;
+    $('impCommas')?.addEventListener('change', e => { imp.commas = e.target.checked; renderImport(); });
+  }
+  const have = currentList().length;
+  $('impAdd').hidden = !have;
+  $('impAdd').disabled = $('impReplace').disabled = !imp.list.length;
+  const n = imp.list.length;
+  $('impReplace').textContent = have ? `Replace my ${have} item${have === 1 ? '' : 's'}`
+    : n ? `Import ${n} item${n === 1 ? '' : 's'}` : 'Import';
+}
+function applyImport(mode){
+  const incoming = imp.list.map(([f, r]) => [f, r ?? '']);
+  let list = incoming, skipped = 0;
+  if (mode === 'add') {
+    const have = currentList();
+    const keys = new Set(have.map(p => p[0].trim().toLowerCase()));
+    const fresh = incoming.filter(p => !keys.has(p[0].trim().toLowerCase()));
+    skipped = incoming.length - fresh.length;
+    list = have.concat(fresh);
+  }
+  loadPairs(list); savePairs(); update();
+  $('dlgImport').close();
+  toast(mode === 'add'
+    ? `Added ${incoming.length - skipped} item${incoming.length - skipped === 1 ? '' : 's'}` + (skipped ? ` (${skipped} already in your list)` : '')
+    : `Loaded ${incoming.length} item${incoming.length === 1 ? '' : 's'}`);
+}
+
+$('btnImport').onclick = openImport;
+$('impChoose').onclick = () => $('fileList').click();
+$('fileList').onchange = e => { const f = e.target.files[0]; if (f) loadImportFile(f); e.target.value = ''; };
+$('impPaste').addEventListener('input', e => {
+  Object.assign(imp, { text: e.target.value, name: '', kind: 'tab' });
+  renderImport();
+});
+$('impSample').onclick = () => download('example-list.txt', toTabbed([
+  ['John Smith', 'Mark Jones'], ['Jane', 'Anne'], ['Acme Corp', '[company]'], ['555-201-8876', '555-555-0100']
+]));
+$('impAdd').onclick = () => applyImport('add');
+$('impReplace').onclick = () => applyImport('replace');
+
+// ---------- export dialog ----------
+$('btnExport').onclick = () => {
+  const n = currentList().length;
+  $('expCount').innerHTML = n
+    ? `Save your <b>${n}</b> item${n === 1 ? '' : 's'} to a file so you can load them again later with <b>Import</b>, on this computer or another one.`
+    : `Your list is empty. Add some items first, then come back here to save them.`;
+  for (const id of ['expTxt', 'expCsv', 'expCopy']) $(id).disabled = !n;
+  $('dlgExport').showModal();
+};
+$('expTxt').onclick = () => { download('find-replace-list.txt', toTabbed(currentList())); $('dlgExport').close(); };
+$('expCsv').onclick = () => { download('find-replace-list.csv', toCsv(currentList())); $('dlgExport').close(); };
+$('expCopy').onclick = async e => {
+  const b = e.currentTarget.querySelector('b');
+  await copyText(toTabbed(currentList()));
+  b.textContent = 'Copied ✓';
+  setTimeout(() => { b.textContent = 'Copy to clipboard'; }, 1500);
+};
+
+for (const d of document.querySelectorAll('dialog'))
+  d.addEventListener('click', e => {
+    if (e.target.closest('[data-close]') || e.target === d) d.close();   // Cancel/Close, or a click outside
+  });
+
+async function copyText(text){
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const t = document.createElement('textarea'); t.value = text; document.body.append(t);
+    t.select(); document.execCommand('copy'); t.remove();
+  }
+}
+const plainOutput = () => lastSegs.map(g => g.s).join('');
+$('btnCopy').onclick = async () => {
+  const text = plainOutput();
+  if (!text) { toast('Nothing to copy'); return; }
+  await copyText(text);
+  toast('Result copied');
+};
+$('btnSave').onclick = () => {
+  const text = plainOutput();
+  if (!text) { toast('Nothing to save'); return; }
+  download(lastName, text);
+};
+
+// Drag and drop: a file dropped on the list loads it as a list, anywhere else as input.
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer?.files?.[0]; if (!f) return;
+  if ($('dlgImport').open) loadImportFile(f);
+  else if ($('pairsWrap').contains(e.target)) { openImport(); loadImportFile(f); }
+  else f.text().then(t => setInput(t, f.name));
+});
+
+// ---------- theme ----------
+function setTheme(name){
+  if (![...$('optTheme').options].some(o => o.value === name)) name = 'light';
+  document.documentElement.dataset.theme = name;
+  document.documentElement.style.colorScheme =
+    ['light', 'desert-sunset', 'arctic-dawn'].includes(name) ? 'light' : 'dark';   // native scrollbars/checkboxes match
+  $('optTheme').value = name;
+}
+$('optTheme').addEventListener('change', e => { setTheme(e.target.value); store.set('redactor.theme', e.target.value); });
+// First visit: Light or Dark to match the system; after that, the saved choice.
+setTheme(store.get('redactor.theme') ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+
+// ---------- init ----------
+try {
+  const o = JSON.parse(store.get('redactor.opts') || '{}');
+  if (typeof o.ci === 'boolean') $('optCase').checked = o.ci;
+  if (typeof o.whole === 'boolean') $('optWord').checked = o.whole;
+} catch {}
+let saved = [];
+try { saved = JSON.parse(store.get('redactor.pairs') || '[]'); } catch {}
+loadPairs(Array.isArray(saved) ? saved : []);
+update();
+</script>
+</body>
+</html>
