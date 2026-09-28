@@ -4,6 +4,8 @@ A text redactor: swap real names and other details in text for placeholders like
 
 **Use it online:** https://fourier18.github.io/ScrubbyWurd/ — the page runs entirely in your browser there too; the text you paste never goes to a server.
 
+> **Working with sensitive or work data? Use the download, not the online link.** Even though nothing you paste is sent anywhere, the online version is still a page loaded from the internet, and many workplaces don't allow confidential data in internet-connected tools. Download `ScrubbyWurd.html` and open it from your own computer, where it never connects to anything. When the task is done, delete any results you saved, and clear your clipboard history if you use one (Windows: Win+V).
+
 ## Using it
 
 1. **Build your list.** In the left panel, type what to find and what to replace it with, one pair per row. A new empty row appears as you fill the last one.
