@@ -39,6 +39,7 @@ def main() -> int:
         "default-src 'none'; "
         f"script-src {sha256(scripts[0])}; "
         f"style-src {sha256(styles[0])}; "
+        "img-src data:; "  # only the page's own built-in icon
         "base-uri 'none'; form-action 'none'"
     )
     new, n = META.subn(lambda m: m.group(1) + policy + m.group(2), html)

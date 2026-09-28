@@ -6,6 +6,16 @@ A text redactor: swap real names and other details in text for placeholders like
 
 > **Working with sensitive or work data? Use the download, not the online link.** Even though nothing you paste is sent anywhere, the online version is still a page loaded from the internet, and many workplaces don't allow confidential data in internet-connected tools. Download `ScrubbyWurd.html` and open it from your own computer, where it never connects to anything. When the task is done, delete any results you saved, and clear your clipboard history if you use one (Windows: Win+V).
 
+## Install it as an app (Windows)
+
+To get ScrubbyWurd in its own window, with its own icon, in the Start menu and pinnable to the taskbar, download the repository (**Code → Download ZIP**), unzip it, and in that folder run:
+
+```
+powershell -ExecutionPolicy Bypass -File tools\install-windows-app.ps1
+```
+
+Nothing is installed as a program. It copies `ScrubbyWurd.html` and its icon to `%LOCALAPPDATA%\Programs\ScrubbyWurd` and adds **ScrubbyWurd** shortcuts to the Start menu and Desktop. Right-click either one and choose **Pin to taskbar**. The shortcut opens the page in Microsoft Edge's app mode (no address bar or tabs) using a separate Edge profile with extensions and sync turned off, so no browser extension can see what you paste. Run the script again after updating to install the new version. To remove it, delete the two shortcuts and that folder.
+
 ## Using it
 
 1. **Build your list.** In the left panel, type what to find and what to replace it with, one pair per row. A new empty row appears as you fill the last one.
