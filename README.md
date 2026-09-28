@@ -1,6 +1,6 @@
-# Redactor
+# ScrubbyWurd
 
-A find-and-replace tool for cleaning names and other details out of text. It's a single HTML file: download `redactor.html`, double-click it, and it opens in your browser. Nothing to install, and nothing you paste in is sent anywhere.
+A text redactor: swap real names and other details in text for placeholders like `[full name]` or for made-up stand-ins. It's a single HTML file: download [`ScrubbyWurd.html`](ScrubbyWurd.html), double-click it, and it opens in your browser. Nothing to install, it works offline, and nothing you paste in is sent anywhere.
 
 ## Using it
 
@@ -29,3 +29,7 @@ To move a list to another computer or browser, or share it, use **Export** and *
 - **Spreadsheet (.csv)**: find in column A, replacement in column B. Opens in Excel or Google Sheets.
 
 The Import window shows a preview of the list before anything changes. An exported list contains the original names you're hiding, so keep the file private.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Redactor</title>
+<title>ScrubbyWurd</title>
 <!-- Single self-contained file: no network requests, nothing leaves this page. -->
 <style>
 /* Themes: same seven palettes as Coding Tutor (theme.css, theme-dark.css, themes.css).
@@ -44,6 +44,7 @@ html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column}
 header{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
 h1{font-size:16px;margin:0;font-weight:650}
+h1 .tag{font-size:12px;font-weight:500;color:var(--muted);margin-left:4px}
 .opts{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;color:var(--muted)}
 .opts label{display:flex;gap:6px;align-items:center;cursor:pointer}
 #stats{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -133,7 +134,7 @@ button:disabled{opacity:.45;cursor:default}
 </head>
 <body>
 <header>
-  <h1>Redactor</h1>
+  <h1>ScrubbyWurd <span class="tag">text redactor</span></h1>
   <div class="opts">
     <label title="'john smith' also finds 'John Smith' and 'JOHN SMITH'"><input type="checkbox" id="optCase" checked> Ignore case</label>
     <label title="'Ann' won't change 'Annual'"><input type="checkbox" id="optWord" checked> Whole words only</label>
@@ -241,6 +242,7 @@ const $ = id => document.getElementById(id);
 const pairsEl = $('pairs'), inEl = $('input'), outEl = $('output');
 
 // ---------- storage (the list + options only; input text is never saved) ----------
+// Keys keep the "redactor." prefix from before the rename, so saved lists still load.
 const store = {
   get(k){ try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v){ try { localStorage.setItem(k, v); } catch {} }
