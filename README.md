@@ -19,11 +19,23 @@ To add something you spot while reading, select it in the input or the result an
 - **Whole words only**: `Ann` doesn't change `Annual`.
 - **Theme**: Light, Dark, Forest Green, Azure Night, Desert Sunset, Arctic Dawn or Plum Midnight.
 
-Longer items are always replaced first, so `John Smith` isn't split by a separate `John` entry. Each piece of text is replaced once; a replacement is never changed again by another item.
+Longer items are always replaced first, so `John Smith` isn't split by a separate `John` entry. Each piece of text is replaced once; a replacement is never changed again by another item. If two items overlap, like `Jo Ann` and `Ann Lee` in "Jo Ann Lee", the whole stretch is replaced and flagged with ⚠, so no part of either name is left behind.
+
+## What it catches
+
+Each item is matched as you typed it, and also where the same text is written in other common ways:
+
+- with extra spaces, tabs or line breaks between words, or `\n`, `\t`, `%20`, `+` or `&nbsp;` in logs, JSON, URLs and web pages;
+- with invisible characters inside it (zero-width spaces, soft hyphens), which text copied from web pages often has;
+- with a curly apostrophe (`O’Brien` for `O'Brien`) or an escaped one (`&#39;`, `\u0027`);
+- with accented letters stored either way, or escaped as `\u00e9` or `&#233;`;
+- in Chinese, Japanese, Korean and Thai text, where words aren't separated by spaces.
+
+It does **not** guess other formats. `555-201-8876` won't match `(555) 201-8876`, and `Mary-Jane` won't match `Mary Jane`. Add each form you expect as its own item, and check the result before you share it.
 
 ## Saving and sharing your list
 
-Your list and settings are kept in your browser, so they're there next time you open the file on the same computer and browser. The text you paste is never saved.
+Your list and settings are kept in your browser, so they're there next time you open the file on the same computer and browser. The text you paste is never saved. The page blocks all outside connections itself (a Content-Security-Policy), so nothing you paste can be sent anywhere.
 
 To move a list to another computer or browser, or share it, use **Export** and **Import**:
 

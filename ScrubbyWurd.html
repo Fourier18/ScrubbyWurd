@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Content-Security-Policy: the browser itself blocks every outside connection and any
+     script or style other than the ones in this file. After editing the page's script or style
+     block, run  python tools/update-csp.py  to refresh the two hashes, or the page won't run. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Pix+BDDXhNKpQvDckiJX84zbwWNxOL4R9G3v4DIDG3g='; style-src 'sha256-YN1hVU74ToVsYBOXM4LeohxIJOMc/AuyZg0arfgNLRs='; base-uri 'none'; form-action 'none'">
 <title>ScrubbyWurd</title>
 <!-- Single self-contained file: no network requests, nothing leaves this page. -->
 <style>
@@ -64,6 +68,10 @@ button:hover{border-color:var(--muted)}
 button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 button:focus-visible,textarea:focus-visible,pre:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 mark.rep{background:var(--rep-bg);color:var(--rep-ink);border-radius:3px;padding:0 1px}
+mark.rep.merged{box-shadow:0 0 0 1px var(--zero) inset}
+#stats .warn{color:var(--zero);font-weight:600}
+#tip{position:fixed;z-index:50;max-width:min(420px,calc(100vw - 24px));background:var(--ink);color:var(--bg);padding:4px 8px;border-radius:5px;font:12px/1.4 ui-monospace,Consolas,monospace;pointer-events:none;overflow-wrap:anywhere;white-space:pre-wrap}
+#tip[hidden]{display:none}
 
 /* find / replace list */
 #pairsWrap{flex:1;overflow:auto;background:var(--field)}
@@ -73,7 +81,8 @@ mark.rep{background:var(--rep-bg);color:var(--rep-ink);border-radius:3px;padding
 .pair{padding-top:5px;padding-bottom:5px;border-bottom:1px solid var(--line)}
 .pair input{width:100%;min-width:0;border:1px solid var(--line);border-radius:5px;padding:4px 7px;background:var(--panel)}
 .pair .hits{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted);font-size:12.5px}
-.pair .hits.zero{color:var(--zero);font-weight:600}
+.pair .hits.zero,.pair .hits.merged{color:var(--zero);font-weight:600}
+.pair .hits.merged::after{content:" ⚠"}
 .pair .del{border:0;background:none;color:var(--muted);padding:2px;font-size:16px;line-height:1}
 .pair .del:hover{color:var(--ink)}
 .pair.blank .del{visibility:hidden}
@@ -171,7 +180,7 @@ button:disabled{opacity:.45;cursor:default}
       <button id="btnOpen" title="Open a text file (or drop one here)">Open</button>
       <button id="btnClear">Clear</button>
     </div>
-    <textarea id="input" spellcheck="false" placeholder="Paste text here, or drop a file."></textarea>
+    <textarea id="input" spellcheck="false" autocomplete="off" placeholder="Paste text here, or drop a file."></textarea>
   </section>
 
   <section>
@@ -231,13 +240,23 @@ Acme Corp<i>⇥ Tab</i>[company]</pre>
       <button type="button" class="choice" id="expCopy"><b>Copy to clipboard</b><span>Paste straight into a spreadsheet (two columns) or a text file.</span></button>
     </div>
     <p class="note">The list holds the original names you're hiding. Keep the file somewhere private.</p>
+    <p class="note">If you edit the .csv in Excel, it can turn phone numbers, long ID numbers and dates into a different format. Check those items after you import the list again.</p>
     <div class="actions"><button type="button" data-close>Close</button></div>
   </div>
 </dialog>
 <div id="toast" role="status"></div>
+<div id="tip" hidden></div>
 
 <script>
 "use strict";
+// Refuse to run inside another site's frame (it could overlay or disguise the page).
+if (window.top !== window.self) {
+  document.body.replaceChildren();
+  const a = document.createElement('a');
+  a.href = location.href; a.target = '_top'; a.textContent = 'Open ScrubbyWurd in its own tab';
+  document.body.append(a);
+  throw new Error('framed');
+}
 const $ = id => document.getElementById(id);
 const pairsEl = $('pairs'), inEl = $('input'), outEl = $('output');
 
@@ -281,54 +300,128 @@ function savePairs(){
 }
 function loadPairs(list){
   pairsEl.innerHTML = '';
-  for (const [f, r] of list) addRow(f, r);
+  // Tolerate a damaged or foreign saved value instead of failing to start.
+  for (const item of Array.isArray(list) ? list : [])
+    if (Array.isArray(item)) addRow(String(item[0] ?? ''), String(item[1] ?? ''));
   ensureBlankRow();
 }
 
 // ---------- matching ----------
+// Everything below builds one search pattern per Find item. The item is matched as
+// literal text; the extra rules only catch the same name written in other ways that
+// are common in logs, JSON, web pages and copied text, so a name can't slip through.
 const WORD_CH = /[\p{L}\p{N}]/u;
+// Scripts written without spaces between words: a name there usually touches other letters,
+// so "whole words" can't apply to its edges.
+const NO_SPACE_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
 const escRe = s => s.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&');
-// Whole-word check. Also treats text right after escape codes like \n, \t, é and %20
-// as the start of a word, so "\tJohn" in a log or JSON still counts as the word "John".
-const LEFT = String.raw`(?:(?<![\p{L}\p{N}])|(?<=\\[ntrbf])|(?<=\\u[0-9A-Fa-f]{4})|(?<=%[0-9A-Fa-f]{2}))`;
+// Invisible characters that can sit inside a name: soft hyphen, zero-width space/joiners, word joiner.
+const INVIS = String.raw`[\u{AD}\u{200B}-\u{200D}\u{2060}]*`;
+// Between the words of an item: any whitespace, or whitespace written as an escape
+// or encoding (\n \t \r in JSON/logs, %20 and + in URLs, &nbsp; in HTML).
+const GAP = String.raw`(?:[\s\u{AD}\u{200B}-\u{200D}\u{2060}]|\\[ntr]|%20|\+|&nbsp;|&#0*160;|&#[xX]0*[aA]0;)+`;
+// Whole-word edges. The end is checked inside the pattern; the start is checked on each
+// match in leftOk() (much faster than a lookbehind tried at every position). Text right
+// after an escape (\t or \n, a JSON unicode escape, or a URL code like %20) counts as a word start.
 const RIGHT = String.raw`(?![\p{L}\p{N}])`;
+const ENDS_IN_WORD = /[\p{L}\p{N}]$/u;
+const ENDS_IN_ESCAPE = /(?:\\[ntrbf]|\\u[0-9A-Fa-f]{4}|%[0-9A-Fa-f]{2})$/;
+const leftOk = (text, i) => i === 0 || !ENDS_IN_WORD.test(text.slice(Math.max(0, i - 2), i))
+  || ENDS_IN_ESCAPE.test(text.slice(Math.max(0, i - 6), i));
+const APOS = new Set(["'", '\u{2019}', '\u{2018}', '\u{2BC}']);
+const hexAnyCase = h => [...h].map(c => /[a-f]/.test(c) ? `[${c}${c.toUpperCase()}]` : c).join('');
 
-function findSource(find, whole){
-  let src = find.trim().split(/\s+/).map(escRe).join(String.raw`\s+`);
-  if (whole) {
-    const t = find.trim();
-    if (WORD_CH.test(t[0])) src = LEFT + src;
-    if (WORD_CH.test(t.at(-1))) src += RIGHT;
+// One character of a Find item, plus the other ways it's commonly written.
+function charSource(ch){
+  if (APOS.has(ch))   // straight, curly and modifier apostrophes, plus their JSON and HTML escapes
+    return String.raw`(?:['\u{2018}\u{2019}\u{2BC}]|\\u0027|\\u2019|&#0*39;|&#[xX]0*27;|&apos;|&rsquo;|&#0*8217;)`;
+  const cp = ch.codePointAt(0);
+  if (cp > 0x7f && cp <= 0xffff) {   // accented and non-Latin letters: JSON \uXXXX and HTML &#NNN; escapes
+    const hex = cp.toString(16);
+    return `(?:${escRe(ch)}|\\\\u${hexAnyCase(hex.padStart(4, '0'))}|&#0*${cp};|&#[xX]0*${hexAnyCase(hex)};)`;
   }
-  return src;
+  return escRe(ch);
+}
+
+// Returns the pattern and whether the match's start must be checked for a word edge.
+function findSource(find, whole){
+  const t = find.trim().normalize('NFC');
+  let src = t.split(/\s+/).map(w => [...w].map(charSource).join(INVIS)).join(GAP);
+  let left = false;
+  if (whole) {
+    const chars = [...t], first = chars[0], last = chars.at(-1);
+    left = WORD_CH.test(first) && !NO_SPACE_SCRIPT.test(first);
+    if (WORD_CH.test(last) && !NO_SPACE_SCRIPT.test(last)) src += RIGHT;
+  }
+  return { src, left };
+}
+
+// Items are searched in batches, so a long list never builds a pattern too large for the browser.
+const BATCH_CHARS = 60000;
+function batches(active){
+  const out = []; let cur = [], size = 0;
+  for (const x of active) {
+    if (cur.length && size + x.src.length > BATCH_CHARS) { out.push(cur); cur = []; size = 0; }
+    cur.push(x); size += x.src.length + 3;
+  }
+  if (cur.length) out.push(cur);
+  return out;
 }
 
 function replaceAll(text, pairs, opts){
   const seen = new Set();
   const active = [];
   for (const p of pairs) {
-    p.dup = false;
+    p.dup = false; p.merged = 0;
     if (!p.find.trim()) continue;
-    const key = opts.ci ? p.find.trim().toLowerCase() : p.find.trim();
+    const norm = p.find.trim().normalize('NFC').replace(/\s+/g, ' ');
+    const key = opts.ci ? norm.toLowerCase() : norm;
     if (seen.has(key)) { p.dup = true; continue; }
     seen.add(key);
-    active.push({ p, src: findSource(p.find, opts.whole) });
+    active.push({ p, ...findSource(p.find, opts.whole), len: norm.length });
   }
-  // Longest first, so "John Smith" is replaced before "John" can split it.
-  active.sort((a, b) => b.p.find.trim().length - a.p.find.trim().length);
+  text = text.normalize('NFC');   // one form for accented letters, so é typed either way matches
   if (!active.length || !text) return [{ s: text }];
-  // One pass over the text: replaced text is never searched again.
-  const re = new RegExp(active.map(x => '(' + x.src + ')').join('|'), 'gu' + (opts.ci ? 'i' : ''));
+  // Within a batch, longer items come first, so "John Smith" wins over "John" at the same spot.
+  active.sort((a, b) => b.len - a.len);
+
+  // Collect every place an item matches, including matches that start inside another one.
+  const cands = [];
+  for (const batch of batches(active)) {
+    const re = new RegExp(batch.map(x => '(' + x.src + ')').join('|'), 'gu' + (opts.ci ? 'i' : ''));
+    let m;
+    while ((m = re.exec(text))) {
+      let g = 1; while (m[g] === undefined) g++;
+      const x = batch[g - 1];
+      // All items that can match at this spot share its left edge, so a failed check here
+      // can't hide a different item that would have passed.
+      if (m[0] && (!x.left || leftOk(text, m.index)))
+        cands.push({ start: m.index, end: m.index + m[0].length, p: x.p });
+      re.lastIndex = m.index + 1;
+    }
+  }
+  // Take matches left to right, longest first at each spot. When a later item starts inside
+  // a replacement and runs past its end ("Jo Ann" + "Ann Lee" in "Jo Ann Lee"), the
+  // replacement is stretched to cover it, so no part of either name is left behind.
+  cands.sort((a, b) => a.start - b.start || b.end - a.end);
+  const chosen = [];
+  let pos = 0;
+  for (const c of cands) {
+    if (c.start >= pos) { chosen.push({ ...c, merged: [] }); pos = c.end; }
+    else if (c.end > pos) {
+      const last = chosen.at(-1);
+      last.end = pos = c.end;
+      last.merged.push(c.p);
+    }
+  }
   const segs = [];
-  let pos = 0, m;
-  while ((m = re.exec(text))) {
-    if (!m[0]) { re.lastIndex++; continue; }
-    let g = 1; while (m[g] === undefined) g++;
-    const p = active[g - 1].p;
-    p.hits++;
-    if (m.index > pos) segs.push({ s: text.slice(pos, m.index) });
-    segs.push({ s: p.rep, orig: m[0], hit: true });
-    pos = m.index + m[0].length;
+  pos = 0;
+  for (const c of chosen) {
+    c.p.hits++;
+    for (const q of c.merged) { q.hits++; q.merged++; }
+    if (c.start > pos) segs.push({ s: text.slice(pos, c.start) });
+    segs.push({ s: c.p.rep, orig: text.slice(c.start, c.end), hit: true, merged: c.merged.map(q => q.find.trim()) });
+    pos = c.end;
   }
   if (pos < text.length) segs.push({ s: text.slice(pos) });
   return segs;
@@ -338,15 +431,32 @@ function replaceAll(text, pairs, opts){
 const escHtml = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let lastSegs = [], lastName = 'redacted.txt';
 
+// The original text of each replacement is kept here, not in the page, so it can't be
+// carried along when someone selects and copies the result.
+let originals = [];
+
 function update(){
   const opts = { ci: $('optCase').checked, whole: $('optWord').checked };
   const pairs = readPairs();
-  const segs = replaceAll(inEl.value, pairs, opts);
+  let segs;
+  try {
+    segs = replaceAll(inEl.value, pairs, opts);
+  } catch (e) {
+    // Fail closed: never leave an old or partial result on screen that could be copied.
+    lastSegs = []; originals = [];
+    outEl.textContent = '';
+    $('stats').innerHTML = `<span class="warn">Couldn't process this text or list, so nothing is shown. (${escHtml(String(e.message).slice(0, 120))})</span>`;
+    return;
+  }
   lastSegs = segs;
-
-  outEl.innerHTML = segs.map(g => g.hit
-    ? `<mark class="rep" title="was: ${escHtml(g.orig)}">${escHtml(g.s) || '&#8203;'}</mark>`
-    : escHtml(g.s)).join('');
+  originals = [];
+  let mergedCount = 0;
+  outEl.innerHTML = segs.map(g => {
+    if (!g.hit) return escHtml(g.s);
+    const i = originals.push(g) - 1;
+    if (g.merged.length) mergedCount++;
+    return `<mark class="rep${g.merged.length ? ' merged' : ''}" data-i="${i}">${escHtml(g.s) || '&#8203;'}</mark>`;
+  }).join('');
 
   const hasText = inEl.value.length > 0;
   for (const p of pairs) {
@@ -354,19 +464,46 @@ function update(){
     const counted = hasText && p.find.trim() && !p.dup;
     h.textContent = counted ? p.hits : '';
     h.classList.toggle('zero', !!counted && p.hits === 0);
-    h.title = p.dup ? 'Same as an earlier row' : counted && !p.hits ? 'Not found in the input' : '';
+    h.classList.toggle('merged', !!counted && p.merged > 0);
+    h.title = p.dup ? 'Same as an earlier row'
+      : counted && !p.hits ? 'Not found in the input'
+      : counted && p.merged ? `Overlapped another item ${p.merged}× and was replaced together with it`
+      : '';
     p.row.classList.toggle('dup', p.dup);
   }
 
   const used = pairs.filter(p => p.find.trim() && !p.dup);
-  const total = used.reduce((n, p) => n + p.hits, 0);
+  const total = segs.filter(g => g.hit).length;
   $('stats').innerHTML = hasText
-    ? `<b>${total}</b> replaced · ${used.filter(p => p.hits).length} of ${used.length} found`
+    ? `<b>${total}</b> replaced · ${used.filter(p => p.hits).length} of ${used.length} found` +
+      (mergedCount ? ` · <span class="warn" title="Two items overlapped, e.g. “Jo Ann” and “Ann Lee” in “Jo Ann Lee”. The whole stretch was replaced with the first item's replacement.">${mergedCount} overlap${mergedCount === 1 ? '' : 's'} joined</span>` : '')
     : `${used.length} item${used.length === 1 ? '' : 's'} in list`;
 }
 
+// Hover a replacement to see what it replaced (shown in a floating tip, never stored in the page).
+const tip = $('tip');
+outEl.addEventListener('mouseover', e => {
+  const m = e.target.closest('mark.rep');
+  if (!m) return;
+  const g = originals[+m.dataset.i];
+  if (!g) return;
+  tip.textContent = 'was: ' + g.orig + (g.merged.length ? `  (joined with “${g.merged.join('”, “')}”)` : '');
+  const r = m.getBoundingClientRect();
+  tip.style.left = Math.min(r.left, innerWidth - 20) + 'px';
+  tip.style.top = (r.bottom + 6) + 'px';
+  tip.hidden = false;
+});
+outEl.addEventListener('mouseout', e => { if (e.target.closest('mark.rep')) tip.hidden = true; });
+outEl.addEventListener('scroll', () => { tip.hidden = true; });
+// Copying a selection from the result puts plain text only on the clipboard.
+outEl.addEventListener('copy', e => {
+  e.preventDefault();
+  e.clipboardData.setData('text/plain', window.getSelection().toString());
+});
+
 let timer;
-const schedule = () => { clearTimeout(timer); timer = setTimeout(update, 100); };
+// Very large inputs wait a little longer after typing, so the page stays responsive.
+const schedule = () => { clearTimeout(timer); timer = setTimeout(update, inEl.value.length > 300000 ? 600 : 100); };
 
 // ---------- actions ----------
 function toast(msg){
@@ -419,10 +556,16 @@ $('btnAdd').onclick = () => {
   toast(`Added “${text}” — now type what to replace it with`);
 };
 
+// U+FFFD appears where a file's bytes weren't valid UTF-8; NUL suggests a binary file.
+const looksMisdecoded = t => /[\u{FFFD}\u{0}]/u.test(t);
 const setInput = (text, name) => {
   inEl.value = text;
-  lastName = name ? name.replace(/(\.[^.]+)?$/, '.redacted$1') : 'redacted.txt';
+  // The saved result gets a neutral name: the original file name can itself contain a name.
+  const ext = (name || '').match(/\.[A-Za-z0-9]{1,8}$/)?.[0] || '.txt';
+  lastName = 'redacted' + ext;
   update();
+  if (name && looksMisdecoded(text))
+    toast('Some characters in this file couldn\'t be read. Save it as UTF-8 text and open it again.');
 };
 $('btnOpen').onclick = () => $('fileText').click();
 $('fileText').onchange = e => {
@@ -434,43 +577,70 @@ $('btnClear').onclick = () => { setInput(''); inEl.focus(); };
 
 // ---------- list files ----------
 // .txt: one pair per line, find <Tab> replacement.  .csv: column A find, column B replacement.
-const stripBom = t => t.replace(/^﻿/, '');
+const stripBom = t => t.replace(/^\u{FEFF}/u, '');
 const isHeader = p => /^find$/i.test(p[0].trim()) && /^replace/i.test((p[1] || '').trim());
+const LINES = /\r\n|\r|\n/;
+// A cell wrapped in quotes (Excel does this when saving tab-delimited text) loses the quotes.
+const unquoteCell = s => /^"[\s\S]*"$/.test(s) && s.length >= 2 ? s.slice(1, -1).replace(/""/g, '"') : s;
+// Export puts ' before cells that a spreadsheet would run as a formula; import takes it off again.
+const FORMULA_START = /^[=+\-@\t\r]/;
+const unguard = s => /^'[=+\-@\t\r]/.test(s) ? s.slice(1) : s;
 
 function parseTabbed(text){
-  return stripBom(text).split(/\r?\n/).filter(l => l.trim()).map(l => {
+  return stripBom(text).split(LINES).filter(l => l.trim()).map(l => {
     const i = l.indexOf('\t');
-    return i < 0 ? [l.trim(), null] : [l.slice(0, i).trim(), l.slice(i + 1).split('\t')[0].trim()];
+    return i < 0 ? [unquoteCell(l.trim()), null]
+      : [unquoteCell(l.slice(0, i).trim()), unquoteCell(l.slice(i + 1).split('\t')[0].trim())];
   });
 }
 function parseCommas(text){
-  return stripBom(text).split(/\r?\n/).filter(l => l.trim()).map(l => {
+  return stripBom(text).split(LINES).filter(l => l.trim()).map(l => {
     const i = l.indexOf(',');
     return i < 0 ? [l.trim(), null] : [l.slice(0, i).trim(), l.slice(i + 1).trim()];
   });
 }
+// The separator is whichever of , ; or Tab appears most in the first line (outside quotes).
+function detectDelimiter(text){
+  const first = (text.split(LINES).find(l => l.trim()) || '').replace(/"[^"]*"/g, '');
+  const counts = [',', ';', '\t'].map(d => [d, first.split(d).length - 1]);
+  counts.sort((a, b) => b[1] - a[1]);
+  return counts[0][1] ? counts[0][0] : ',';
+}
+// Returns { list, warning }. If a quote is never closed, the file is read line by line
+// instead, so one stray quote can't swallow the rest of the list.
 function parseCsv(text){
-  const rows = []; let row = [], cell = '', q = false;
   text = stripBom(text);
+  const d = detectDelimiter(text);
+  const rows = []; let row = [], cell = '', q = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (q) {
       if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
       else if (c === '"') q = false;
       else cell += c;
-    } else if (c === '"') q = true;
-    else if (c === ',' || c === ';') { row.push(cell); cell = ''; }   // ; = Excel in some regions
+    } else if (c === '"' && cell === '') q = true;
+    else if (c === d) { row.push(cell); cell = ''; }
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && text[i + 1] === '\n') i++;
       row.push(cell); rows.push(row); row = []; cell = '';
     } else cell += c;
   }
-  if (cell || row.length) { row.push(cell); rows.push(row); }
-  return rows.filter(r => r.some(c => c.trim())).map(r => [r[0].trim(), r.length > 1 ? r[1].trim() : null]);
+  let warning = '';
+  let out = rows;
+  if (q) {
+    warning = 'A quote mark in this file is never closed, so each line was read on its own. Check the items below.';
+    out = text.split(LINES).map(l => l.split(d).map(unquoteCell));
+  } else if (cell || row.length) { row.push(cell); out.push(row); }
+  const list = out.filter(r => r.some(c => c.trim()))
+    .map(r => [unguard(r[0].trim()), r.length > 1 ? unguard(r[1].trim()) : null]);
+  return { list, warning };
 }
 function toCsv(list){
-  const cell = s => /[",;\r\n]/.test(s) || /^\s|\s$/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  return '﻿' + ['Find,Replace with', ...list.map(([f, r]) => cell(f) + ',' + cell(r))].join('\r\n') + '\r\n';
+  const cell = s => {
+    if (FORMULA_START.test(s)) s = "'" + s;
+    return /[",;\r\n]/.test(s) || /^\s|\s$/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return '\u{FEFF}' + ['Find,Replace with', ...list.map(([f, r]) => cell(f) + ',' + cell(r))].join('\r\n') + '\r\n';
 }
 function toTabbed(list){
   const clean = s => s.replace(/[\t\r\n]+/g, ' ');
@@ -500,7 +670,11 @@ function renderImport(){
     imp.list = [];
     box.innerHTML = '';
   } else {
-    let list = imp.kind === 'csv' ? parseCsv(imp.text) : imp.commas ? parseCommas(imp.text) : parseTabbed(imp.text);
+    let list, warning = '';
+    if (imp.kind === 'csv') ({ list, warning } = parseCsv(imp.text));
+    else list = imp.commas ? parseCommas(imp.text) : parseTabbed(imp.text);
+    if (looksMisdecoded(imp.text))
+      warning = (warning ? warning + ' ' : '') + 'Some characters couldn\'t be read, so accented letters may be wrong. In Excel, save as “CSV UTF-8”.';
     if (list.length && isHeader(list[0])) list = list.slice(1);
     list = list.filter(p => p[0]);
     imp.list = list;
@@ -512,6 +686,7 @@ function renderImport(){
     if (missing) html += ` <span class="warn">${missing} line${missing === 1 ? ' has' : 's have'} no replacement` +
       (imp.kind === 'csv' ? ' in column B' : ' (no Tab found)') + '. Those are imported with an empty Replace box, which removes the text.</span>';
     html += '</div>';
+    if (warning) html += `<div class="sum warn">${escHtml(warning)}</div>`;
     if (noTabs && hasCommas || imp.commas)
       html += `<label><input type="checkbox" id="impCommas"${imp.commas ? ' checked' : ''}> My list uses a comma between the two parts (split each line at its first comma)</label>`;
     if (list.length)
@@ -631,8 +806,11 @@ try {
 } catch {}
 let saved = [];
 try { saved = JSON.parse(store.get('redactor.pairs') || '[]'); } catch {}
-loadPairs(Array.isArray(saved) ? saved : []);
+loadPairs(saved);
 update();
+// Coming back to the page with Back/Forward can restore it from the browser's memory;
+// start with an empty input then, so pasted text doesn't reappear.
+addEventListener('pageshow', e => { if (e.persisted && inEl.value) { inEl.value = ''; update(); } });
 </script>
 </body>
 </html>
