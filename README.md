@@ -14,7 +14,7 @@ To get ScrubbyWurd in its own window, with its own icon, in the Start menu and p
 powershell -ExecutionPolicy Bypass -File tools\install-windows-app.ps1
 ```
 
-Nothing is installed as a program. It copies `ScrubbyWurd.html` and its icon to `%LOCALAPPDATA%\Programs\ScrubbyWurd` and adds **ScrubbyWurd** shortcuts to the Start menu and Desktop. Right-click either one and choose **Pin to taskbar**. The shortcut opens the page in Microsoft Edge's app mode (no address bar or tabs) using a separate Edge profile with extensions and sync turned off, so no browser extension can see what you paste. Run the script again after updating to install the new version. To remove it, delete the two shortcuts and that folder.
+Nothing is installed as a program. It copies `ScrubbyWurd.html` and its icon to `%LOCALAPPDATA%\Programs\ScrubbyWurd` and adds **ScrubbyWurd** shortcuts to the Start menu and Desktop. Right-click either one and choose **Pin to taskbar**. The shortcut opens the page in Google Chrome's app mode (no address bar or tabs), using a separate Chrome profile that isn't signed in to any account and has extensions and sync turned off, so no browser extension can see what you paste. It needs Chrome installed. (Microsoft Edge isn't used, because a new Edge profile signs itself in to your Windows Microsoft account.) Run the script again after updating to install the new version. To remove it, delete the two shortcuts and that folder.
 
 ## Using it
 
